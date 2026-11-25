@@ -1,0 +1,60 @@
+name: Atualizar painel da coordenação
+
+on:
+  schedule:
+    - cron: "0 11-23 * * 1-5"   # de hora em hora, das 8h às 20h (Brasília), segunda a sexta
+  workflow_dispatch:             # botão "Run workflow" para atualizar na hora
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: painel
+  cancel-in-progress: true
+
+jobs:
+  painel:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Buscar dados no Asana e gerar o painel
+        env:
+          ASANA_TOKEN: ${{ secrets.ASANA_TOKEN }}
+          PAINEL_CLIENTES: ${{ secrets.PAINEL_CLIENTES }}
+          PAINEL_SAIDA: raw/index.html
+        run: |
+          pip install -r requirements.txt
+          python painel_coordenacao.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Proteger o painel com senha
+        env:
+          PAINEL_SENHA: ${{ secrets.PAINEL_SENHA }}
+        run: |
+          npx --yes staticrypt@3 raw/index.html -p "$PAINEL_SENHA" -d site --short \
+            --remember 30 -s 86333acc6e020e70f1ba1f362e183365 \
+            --template-title "Painel da Coordenação" \
+            --template-instructions "Digite a senha para abrir o painel." \
+            --template-button "Abrir" --template-placeholder "Senha" \
+            --template-color-primary "#1B2130" --template-color-secondary "#F5F6F8"
+          test -f site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
